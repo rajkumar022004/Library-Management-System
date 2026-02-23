@@ -1,7 +1,8 @@
 # Library Management System
 
 A comprehensive digital solution for managing library operations, including book inventory, member management, lending, and reservations.
-
+But due to some uncertainity frontend code is not working properly so i have uploaded only backend file 
+ 
 ## 📋 Overview
 
 The Library Management System is designed to streamline library operations by automating book management, member registration, borrowing and returning books, and tracking library resources. This system provides an efficient way for librarians to manage their collections and for members to access library services.
