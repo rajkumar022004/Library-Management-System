@@ -1,0 +1,95 @@
+.confirmation-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 20px;
+}
+
+.confirmation-card {
+  background: white;
+  border-radius: 10px;
+  padding: 40px;
+  max-width: 500px;
+  width: 100%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  text-align: center;
+}
+
+.success-icon {
+  font-size: 80px;
+  color: #28a745;
+  margin-bottom: 20px;
+}
+
+.confirmation-card h2 {
+  color: #333;
+  margin-bottom: 10px;
+}
+
+.message {
+  color: #666;
+  font-size: 18px;
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.details-section {
+  text-align: left;
+  background: #f8f9fa;
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.details-section h3 {
+  color: #495057;
+  font-size: 16px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.details-section p {
+  margin-bottom: 5px;
+  color: #666;
+  font-size: 14px;
+}
+
+.details-section strong {
+  color: #333;
+}
+
+.fine-section {
+  border-left: 4px solid #dc3545;
+}
+
+.fine-amount {
+  color: #dc3545 !important;
+  font-size: 18px !important;
+  font-weight: bold;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.action-buttons button {
+  flex: 1;
+  padding: 12px;
+}
+
+@media (max-width: 480px) {
+  .confirmation-card {
+    padding: 20px;
+  }
+  
+  .action-buttons {
+    flex-direction: column;
+  }
+}
