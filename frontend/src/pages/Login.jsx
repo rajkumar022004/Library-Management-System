@@ -5,6 +5,8 @@ import { FaUser, FaLock } from 'react-icons/fa';
 import './Login.css';
 
 function Login() {
+  const [role, setRole] = useState('user');
+  const [isSignUp, setIsSignUp] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
