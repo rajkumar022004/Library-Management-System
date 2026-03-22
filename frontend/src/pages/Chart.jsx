@@ -1,10 +1,12 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import './Chart.css';
 
 function Chart() {
   const navigate = useNavigate();
-
+  const { isAuthenticated, isAdmin } = useAuth();
+  
   const modules = [
     {
       name: 'Authentication',
@@ -56,9 +58,16 @@ function Chart() {
     <div className="chart-container">
       <div className="chart-header">
         <h2>Library Management System - Navigation Chart</h2>
-        <button className="btn btn-primary" onClick={() => navigate(-1)}>
-          Back
-        </button>
+        <div>
+          {isAuthenticated && (
+            <button className="btn btn-info me-2" onClick={() => navigate(isAdmin ? '/admin-home' : '/user-home')}>
+              Home
+            </button>
+          )}
+          <button className="btn btn-primary" onClick={() => navigate(-1)}>
+            Back
+          </button>
+        </div>
       </div>
 
       <div className="chart-grid">

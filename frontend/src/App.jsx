@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 
 
@@ -27,12 +27,14 @@ import Chart from './pages/Chart';
 import Confirmation from './pages/Confirmation';
 import Logout from './pages/Logout';
 
-function App() {
+function AppLayout() {
+  const location = useLocation();
+  const hideNavbar = location.pathname === '/login' || location.pathname === '/';
+
   return (
-    <Router>
-      <AuthProvider>
-        <Navbar />
-        <ToastContainer position="top-right" autoClose={3000} />
+    <>
+      {!hideNavbar && <Navbar />}
+      <ToastContainer position="top-right" autoClose={3000} />
         
         <Routes>
           {/* Public Routes */}
@@ -118,6 +120,15 @@ function App() {
           {/* Default Route */}
           <Route path="/" element={<Navigate to="/login" />} />
         </Routes>
+    </>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <AuthProvider>
+        <AppLayout />
       </AuthProvider>
     </Router>
   );

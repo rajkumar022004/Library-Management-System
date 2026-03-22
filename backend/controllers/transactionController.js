@@ -6,14 +6,11 @@ const mongoose = require('mongoose');
 // @desc    Issue a book
 // @route   POST /api/transactions/issue
 exports.issueBook = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
     const { membershipId, bookSerialNo, issueDate, returnDate, remarks } = req.body;
 
     // Validate membership
-    const membership = await Membership.findOne({ membershipId }).session(session);
+    const membership = await Membership.findOne({ membershipId });
     if (!membership) {
       throw new Error('Membership not found');
     }
@@ -30,7 +27,7 @@ exports.issueBook = async (req, res) => {
     const activeTransactions = await Transaction.find({
       membership: membership._id,
       status: 'ACTIVE'
-    }).session(session);
+    });
 
     for (const trans of activeTransactions) {
       // Calculate fine for each
@@ -42,7 +39,7 @@ exports.issueBook = async (req, res) => {
     }
 
     // Validate book
-    const book = await Book.findOne({ serialNo: bookSerialNo }).session(session);
+    const book = await Book.findOne({ serialNo: bookSerialNo });
     if (!book) {
       throw new Error('Book not found');
     }
@@ -56,7 +53,7 @@ exports.issueBook = async (req, res) => {
       membership: membership._id,
       book: book._id,
       status: 'ACTIVE'
-    }).session(session);
+    });
 
     if (existingIssue) {
       throw new Error('Member already has this book issued');
@@ -88,14 +85,11 @@ exports.issueBook = async (req, res) => {
       status: 'ACTIVE'
     });
 
-    await transaction.save({ session });
+    await transaction.save();
 
     // Update book status
     book.status = 'ISSUED';
-    await book.save({ session });
-
-    await session.commitTransaction();
-    session.endSession();
+    await book.save();
 
     // Populate and return
     const populatedTransaction = await Transaction.findById(transaction._id)
@@ -108,9 +102,6 @@ exports.issueBook = async (req, res) => {
       transaction: populatedTransaction
     });
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    
     res.status(400).json({
       success: false,
       message: error.message
@@ -308,6 +299,63 @@ exports.checkAvailability = async (req, res) => {
     res.json({
       success: true,
       available: book ? book.status === 'AVAILABLE' : false
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// @desc    Get logged-in user's transactions
+// @route   GET /api/transactions/my-history
+exports.getMyTransactions = async (req, res) => {
+  try {
+    // Find membership linked to the logged-in user
+    // Note: req.user.userId must be populated by auth middleware
+    const membership = await Membership.findOne({ user: req.user.userId });
+    
+    if (!membership) {
+      return res.status(404).json({
+        success: false,
+        message: 'No membership linked to this account'
+      });
+    }
+
+    const transactions = await Transaction.find({ membership: membership._id })
+      .populate('book', 'name serialNo author')
+      .sort('-createdAt');
+
+    // Calculate current status for display
+    const data = transactions.map(t => {
+      let displayFine = t.fineCalculated;
+      const today = new Date();
+      const rDate = new Date(t.returnDate);
+
+      // If active and overdue, calculate prospective fine
+      if (t.status === 'ACTIVE' && today > rDate) {
+        const days = Math.ceil((today - rDate) / (1000 * 60 * 60 * 24));
+        displayFine = days * 10; // 10 per day
+      }
+
+      return {
+        _id: t._id,
+        bookName: t.book.name,
+        bookSerial: t.book.serialNo,
+        bookAuthor: t.book.author,
+        issueDate: t.issueDate,
+        returnDate: t.returnDate,
+        actualReturnDate: t.actualReturnDate,
+        status: t.status,
+        fine: displayFine
+      };
+    });
+
+    res.json({
+      success: true,
+      transactions: data,
+      membershipInfo: membership
     });
   } catch (error) {
     res.status(500).json({

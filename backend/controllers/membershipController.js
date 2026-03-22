@@ -1,5 +1,6 @@
 const Membership = require('../models/Membership');
 const User = require('../models/User');
+const mongoose = require('mongoose');
 
 exports.getAllMemberships = async (req, res) => {
   try {
@@ -18,7 +19,11 @@ exports.getAllMemberships = async (req, res) => {
 
 exports.getMembershipById = async (req, res) => {
   try {
-    const membership = await Membership.findById(req.params.id).populate('user');
+    const { id } = req.params;
+    const membership = mongoose.Types.ObjectId.isValid(id)
+      ? await Membership.findById(id).populate('user')
+      : await Membership.findOne({ membershipId: id }).populate('user');
+
     if (!membership) {
       return res.status(404).json({
         success: false,

@@ -41,28 +41,21 @@ function AddMembership() {
     setLoading(true);
     try {
       const response = await api.post('/memberships', formData);
+      const newMembership = response.data.membership || response.data;
+
+      // Alert the admin with the new ID
+      alert(`Membership Registered Successfully!\n\nMEMBERSHIP ID: ${newMembership.membershipId}\n\nPlease share this ID with the user.`);
+
       toast.success('Membership added successfully!');
       navigate('/confirmation', {
         state: {
           message: 'Membership added successfully!',
-          membership: response.data.membership
+          membership: newMembership
         }
       });
     } catch (error) {
-      // Mock success for demo
-      const mockMembership = {
-        ...formData,
-        membershipId: 'MEM' + Math.floor(Math.random() * 1000000),
-        startDate: new Date(),
-        endDate: new Date(Date.now() + 180*24*60*60*1000)
-      };
-      toast.success('Membership added successfully!');
-      navigate('/confirmation', {
-        state: {
-          message: 'Membership added successfully!',
-          membership: mockMembership
-        }
-      });
+      console.error(error);
+      toast.error(error.response?.data?.message || 'Failed to add membership. Please check connection.');
     } finally {
       setLoading(false);
     }

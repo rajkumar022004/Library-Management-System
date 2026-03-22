@@ -10,7 +10,7 @@ import './Transaction.css';
 
 function BookIssue() {
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isAdmin } = useAuth();
   
   const [step, setStep] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
@@ -68,8 +68,13 @@ function BookIssue() {
 
     setLoading(true);
     try {
-      const response = await api.get(`/memberships/${membershipId}`);
-      const member = response.data.membership;
+      const response = await api.get(`/memberships/membership/${membershipId}`);
+      const member = response.data.membership || response.data;
+
+      if (!member) {
+        toast.error('Membership ID not found');
+        return false;
+      }
 
       if (member.status !== 'ACTIVE') {
         toast.error('Membership is not active');
@@ -82,21 +87,34 @@ function BookIssue() {
       }
 
       // Check for overdue books
-      const transactionsResponse = await api.get(`/transactions/member/${member.membershipId}`);
-      const activeTransactions = transactionsResponse.data.transactions.filter(t => t.status === 'ACTIVE');
-      
-      for (const trans of activeTransactions) {
-        if (new Date(trans.returnDate) < new Date()) {
-          toast.error('Member has overdue books. Please return them first.');
-          return false;
+      try {
+        const transactionsResponse = await api.get(`/transactions/member/${member.membershipId}`);
+        const transactions = transactionsResponse.data.transactions || [];
+        
+        if (Array.isArray(transactions)) {
+          const activeTransactions = transactions.filter(t => t.status === 'ACTIVE');
+          
+          for (const trans of activeTransactions) {
+            if (new Date(trans.returnDate) < new Date()) {
+              toast.error('Member has overdue books. Please return them first.');
+              return false;
+            }
+          }
         }
+      } catch (err) {
+        console.log("Transaction check skipped or failed:", err);
+        // We continue issuing even if transaction history fetch fails, 
+        // or you can choose to block it here.
       }
 
       setMembership(member);
       setStep(3);
       return true;
     } catch (error) {
-      toast.error('Invalid membership ID');
+      console.error("Validation Error:", error);
+      // Show the actual error message from the backend if available
+      const errorMsg = error.response?.data?.message || 'Membership ID not found or server error';
+      toast.error(errorMsg);
       return false;
     } finally {
       setLoading(false);
@@ -167,7 +185,7 @@ function BookIssue() {
             Chart
           </button>
           <span>|</span>
-          <button className="nav-link" onClick={() => navigate('/user-home')}>
+          <button className="nav-link" onClick={() => navigate(isAdmin ? '/admin-home' : '/user-home')}>
             Home
           </button>
           <span>|</span>
