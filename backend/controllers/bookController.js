@@ -41,7 +41,8 @@ exports.searchBooks = async (req, res) => {
       $or: [
         { name: { $regex: keyword, $options: 'i' } },
         { author: { $regex: keyword, $options: 'i' } },
-        { serialNo: { $regex: keyword, $options: 'i' } }
+        { serialNo: { $regex: keyword, $options: 'i' } },
+        { category: { $regex: keyword, $options: 'i' } }
       ]
     });
     
@@ -82,13 +83,34 @@ exports.getBookBySerialNo = async (req, res) => {
 
 exports.addBook = async (req, res) => {
   try {
-    const book = new Book(req.body);
-    await book.save();
-    
+    const { quantity = 1, ...bookData } = req.body;
+    const qty = parseInt(quantity) || 1;
+
+    if (qty < 1 || qty > 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'Quantity must be between 1 and 100'
+      });
+    }
+
+    // Create multiple book copies
+    const createdBooks = [];
+    for (let i = 0; i < qty; i++) {
+      const book = new Book({
+        ...bookData,
+        quantity: 1,
+        availableCopies: 1
+      });
+      await book.save();
+      createdBooks.push(book);
+    }
+
     res.status(201).json({
       success: true,
-      message: 'Book added successfully',
-      book
+      message: `${qty} copy/copies added successfully`,
+      book: createdBooks[0], // Return first copy for confirmation
+      totalCreated: qty,
+      books: createdBooks
     });
   } catch (error) {
     res.status(400).json({

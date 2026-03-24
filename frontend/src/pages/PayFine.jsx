@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 import { FaMoneyBillWave, FaCheckCircle, FaExclamationTriangle } from 'react-icons/fa';
@@ -7,12 +8,37 @@ import './Transaction.css';
 
 function PayFine() {
   const navigate = useNavigate();
+  const { isAdmin, isAuthenticated } = useAuth();
   const [membershipId, setMembershipId] = useState('');
   const [member, setMember] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [selectedTransactions, setSelectedTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [totalFine, setTotalFine] = useState(0);
+  const [membershipLoading, setMembershipLoading] = useState(false);
+
+  useEffect(() => {
+    const loadMyMembership = async () => {
+      if (!isAuthenticated || isAdmin) {
+        return;
+      }
+
+      setMembershipLoading(true);
+      try {
+        const response = await api.get('/memberships/my');
+        const linkedMembership = response.data.membership || response.data;
+        setMember(linkedMembership);
+        setMembershipId(linkedMembership.membershipId || '');
+      } catch (error) {
+        setMember(null);
+        setMembershipId('');
+      } finally {
+        setMembershipLoading(false);
+      }
+    };
+
+    loadMyMembership();
+  }, [isAuthenticated, isAdmin]);
 
   const searchMember = async () => {
     if (!membershipId) {
@@ -22,9 +48,17 @@ function PayFine() {
 
     setLoading(true);
     try {
-      const memberResponse = await api.get(`/memberships/${membershipId}`);
-      const memberData = memberResponse.data.membership || memberResponse.data;
-      setMember(memberData);
+      let memberData = member;
+      if (isAdmin) {
+        const memberResponse = await api.get(`/memberships/${membershipId}`);
+        memberData = memberResponse.data.membership || memberResponse.data;
+        setMember(memberData);
+      }
+
+      if (!memberData) {
+        toast.error('No membership linked to this account');
+        return;
+      }
 
       // Get transactions with fines
       try {
@@ -133,18 +167,34 @@ function PayFine() {
           <div className="step-container">
             <h3>Enter Membership ID</h3>
             <div className="form-group">
-              <input
-                type="text"
-                className="form-control"
-                value={membershipId}
-                onChange={(e) => setMembershipId(e.target.value)}
-                placeholder="Enter membership ID"
-              />
+              {isAdmin ? (
+                <input
+                  type="text"
+                  className="form-control"
+                  value={membershipId}
+                  onChange={(e) => setMembershipId(e.target.value)}
+                  placeholder="Enter membership ID"
+                />
+              ) : (
+                <input
+                  type="text"
+                  className="form-control"
+                  value={membershipId}
+                  placeholder="Linked membership"
+                  readOnly
+                />
+              )}
             </div>
+            {!isAdmin && membershipLoading && (
+              <div className="alert alert-info">Loading your membership...</div>
+            )}
+            {!isAdmin && !membershipLoading && !membershipId && (
+              <div className="alert alert-warning">No membership linked to your account.</div>
+            )}
             <button
               className="btn btn-primary"
               onClick={searchMember}
-              disabled={loading}
+              disabled={loading || (!isAdmin && !membershipId)}
             >
               {loading ? 'Searching...' : 'Search'}
             </button>

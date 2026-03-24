@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 import DatePicker from 'react-datepicker';
@@ -8,6 +9,7 @@ import './Transaction.css';
 
 function BookReturn() {
   const navigate = useNavigate();
+  const { isAdmin, isAuthenticated } = useAuth();
   const [step, setStep] = useState(1);
   const [membershipId, setMembershipId] = useState('');
   const [bookSerialNo, setBookSerialNo] = useState('');
@@ -18,6 +20,30 @@ function BookReturn() {
   const [remarks, setRemarks] = useState('');
   const [loading, setLoading] = useState(false);
   const [fineAmount, setFineAmount] = useState(0);
+  const [membershipLoading, setMembershipLoading] = useState(false);
+
+  useEffect(() => {
+    const loadMyMembership = async () => {
+      if (!isAuthenticated || isAdmin) {
+        return;
+      }
+
+      setMembershipLoading(true);
+      try {
+        const response = await api.get('/memberships/my');
+        const linkedMembership = response.data.membership || response.data;
+        setMember(linkedMembership);
+        setMembershipId(linkedMembership.membershipId || '');
+      } catch (error) {
+        setMember(null);
+        setMembershipId('');
+      } finally {
+        setMembershipLoading(false);
+      }
+    };
+
+    loadMyMembership();
+  }, [isAuthenticated, isAdmin]);
 
   const searchTransaction = async () => {
     if (!membershipId || !bookSerialNo) {
@@ -27,10 +53,12 @@ function BookReturn() {
 
     setLoading(true);
     try {
-      // First get member details
-      const memberResponse = await api.get(`/memberships/${membershipId}`);
-      const memberData = memberResponse.data.membership || memberResponse.data;
-      setMember(memberData);
+      let memberData = member;
+      if (isAdmin) {
+        const memberResponse = await api.get(`/memberships/${membershipId}`);
+        memberData = memberResponse.data.membership || memberResponse.data;
+        setMember(memberData);
+      }
 
       // Get book details
       const bookResponse = await api.get(`/books/${bookSerialNo}`);
@@ -137,14 +165,31 @@ function BookReturn() {
             
             <div className="form-group">
               <label>Membership ID:</label>
-              <input
-                type="text"
-                className="form-control"
-                value={membershipId}
-                onChange={(e) => setMembershipId(e.target.value)}
-                placeholder="Enter membership ID"
-              />
+              {isAdmin ? (
+                <input
+                  type="text"
+                  className="form-control"
+                  value={membershipId}
+                  onChange={(e) => setMembershipId(e.target.value)}
+                  placeholder="Enter membership ID"
+                />
+              ) : (
+                <input
+                  type="text"
+                  className="form-control"
+                  value={membershipId}
+                  placeholder="Linked membership"
+                  readOnly
+                />
+              )}
             </div>
+
+            {!isAdmin && membershipLoading && (
+              <div className="alert alert-info">Loading your membership...</div>
+            )}
+            {!isAdmin && !membershipLoading && !membershipId && (
+              <div className="alert alert-warning">No membership linked to your account.</div>
+            )}
 
             <div className="form-group">
               <label>Book Serial No:</label>
@@ -160,7 +205,7 @@ function BookReturn() {
             <button
               className="btn btn-primary"
               onClick={searchTransaction}
-              disabled={loading}
+              disabled={loading || (!isAdmin && !membershipId)}
             >
               {loading ? 'Searching...' : 'Find Transaction'}
             </button>

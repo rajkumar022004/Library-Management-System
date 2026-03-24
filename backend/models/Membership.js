@@ -1,5 +1,7 @@
 const mongoose = require('mongoose');
 
+const NAME_PATTERN = /^[A-Za-z ]+$/;
+
 const membershipSchema = new mongoose.Schema({
   membershipId: {
     type: String,
@@ -11,13 +13,29 @@ const membershipSchema = new mongoose.Schema({
   },
   firstName: {
     type: String,
-    required: true
+    required: true,
+    trim: true,
+    match: [NAME_PATTERN, 'First name can contain only letters and spaces']
   },
   lastName: {
     type: String,
-    required: true
+    required: true,
+    trim: true,
+    match: [NAME_PATTERN, 'Last name can contain only letters and spaces']
   },
-  contactName: String,
+  contactName: {
+    type: String,
+    trim: true,
+    validate: {
+      validator: function(value) {
+        if (!value) {
+          return true;
+        }
+        return NAME_PATTERN.test(value);
+      },
+      message: 'Contact name can contain only letters and spaces'
+    }
+  },
   contactAddress: String,
   aadharCardNo: {
     type: String,
@@ -48,6 +66,9 @@ const membershipSchema = new mongoose.Schema({
     default: 0
   }
 });
+
+// One user can be linked to at most one membership.
+membershipSchema.index({ user: 1 }, { unique: true, sparse: true });
 
 
 membershipSchema.pre('save', async function(next) {

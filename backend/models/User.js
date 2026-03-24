@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
+const NAME_PATTERN = /^[A-Za-z ]+$/;
+
 const userSchema = new mongoose.Schema({
   username: {
     type: String,
@@ -16,7 +18,9 @@ const userSchema = new mongoose.Schema({
   },
   name: {
     type: String,
-    required: true
+    required: true,
+    trim: true,
+    match: [NAME_PATTERN, 'Name can contain only letters and spaces']
   },
   email: {
     type: String,

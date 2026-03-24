@@ -23,6 +23,10 @@ exports.issueBook = async (req, res) => {
       throw new Error('Membership has expired');
     }
 
+    if (!membership.user) {
+      throw new Error('Membership is not linked to any user. Please link membership to a user first.');
+    }
+
     // Check if member has overdue books
     const activeTransactions = await Transaction.find({
       membership: membership._id,
@@ -77,6 +81,7 @@ exports.issueBook = async (req, res) => {
     // Create transaction
     const transaction = new Transaction({
       membership: membership._id,
+      user: membership.user,
       book: book._id,
       transactionType: 'ISSUE',
       issueDate: issueDateObj,
@@ -109,6 +114,230 @@ exports.issueBook = async (req, res) => {
   }
 };
 
+// @desc    Create an issue request (typically by user)
+// @route   POST /api/transactions/issue-request
+exports.requestIssue = async (req, res) => {
+  try {
+    const {
+      membershipId,
+      bookSerialNo,
+      requestedBookName,
+      requestedBookAuthor,
+      requestedBookCategory,
+      remarks
+    } = req.body;
+
+    if (!membershipId) {
+      throw new Error('Membership ID is required');
+    }
+
+    const membership = await Membership.findOne({ membershipId: String(membershipId).trim() });
+    if (!membership) {
+      throw new Error('Membership not found');
+    }
+
+    if (membership.status !== 'ACTIVE') {
+      throw new Error('Membership is not active');
+    }
+
+    if (membership.endDate && new Date(membership.endDate) < new Date()) {
+      throw new Error('Membership has expired');
+    }
+
+    if (!membership.user) {
+      membership.user = req.user.userId;
+      await membership.save();
+    } else if (String(membership.user) !== String(req.user.userId) && !req.user.isAdmin) {
+      throw new Error('This membership does not belong to your account');
+    }
+
+    let normalizedName = String(requestedBookName || '').trim();
+    let normalizedAuthor = String(requestedBookAuthor || '').trim();
+    let normalizedCategory = String(requestedBookCategory || '').trim();
+
+    if (bookSerialNo) {
+      const book = await Book.findOne({ serialNo: String(bookSerialNo).trim() });
+      if (!book) {
+        throw new Error('Book not found');
+      }
+      normalizedName = book.name;
+      normalizedAuthor = book.author;
+      normalizedCategory = book.category;
+    }
+
+    if (!normalizedName) {
+      throw new Error('Requested book name is required');
+    }
+
+    const requestedBookFilter = {
+      name: normalizedName,
+      author: normalizedAuthor,
+      category: normalizedCategory,
+      status: { $nin: ['LOST', 'DAMAGED'] }
+    };
+
+    const matchableBooksCount = await Book.countDocuments(requestedBookFilter);
+    if (matchableBooksCount === 0) {
+      throw new Error('No matching book record found for this request');
+    }
+
+    const existingOpenRequest = await Transaction.findOne({
+      membership: membership._id,
+      requestedBookName: normalizedName,
+      requestedBookAuthor: normalizedAuthor,
+      requestedBookCategory: normalizedCategory,
+      status: 'PENDING'
+    });
+
+    if (existingOpenRequest) {
+      throw new Error('There is already a pending request for this book');
+    }
+
+    const issueDate = new Date();
+    const returnDate = new Date(issueDate.getTime() + (15 * 24 * 60 * 60 * 1000));
+
+    const transaction = new Transaction({
+      membership: membership._id,
+      requestedBy: req.user.userId,
+      requestedBookName: normalizedName,
+      requestedBookAuthor: normalizedAuthor,
+      requestedBookCategory: normalizedCategory,
+      transactionType: 'ISSUE',
+      issueDate,
+      returnDate,
+      remarks,
+      status: 'PENDING'
+    });
+
+    await transaction.save();
+
+    const populatedTransaction = await Transaction.findById(transaction._id)
+      .populate('membership')
+      .populate('book')
+      .populate('requestedBy', 'username name');
+
+    res.status(201).json({
+      success: true,
+      message: 'Issue request submitted successfully',
+      transaction: populatedTransaction
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// @desc    Approve a pending issue request
+// @route   POST /api/transactions/issue-request/:transactionId/approve
+exports.approveIssueRequest = async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const { serialNo } = req.body;
+
+    const requestTxn = await Transaction.findOne({
+      transactionId,
+      transactionType: 'ISSUE',
+      status: 'PENDING'
+    });
+
+    if (!requestTxn) {
+      throw new Error('Pending issue request not found');
+    }
+
+    const membership = await Membership.findById(requestTxn.membership);
+    if (!membership) {
+      throw new Error('Membership not found');
+    }
+
+    if (membership.status !== 'ACTIVE') {
+      throw new Error('Membership is not active');
+    }
+
+    if (membership.endDate && new Date(membership.endDate) < new Date()) {
+      throw new Error('Membership has expired');
+    }
+
+    const requestedName = requestTxn.requestedBookName;
+    const requestedAuthor = requestTxn.requestedBookAuthor;
+    const requestedCategory = requestTxn.requestedBookCategory;
+
+    let book;
+    if (serialNo) {
+      book = await Book.findOne({ serialNo: String(serialNo).trim() });
+      if (!book) {
+        throw new Error('Selected serial number not found');
+      }
+      if (book.status !== 'AVAILABLE') {
+        throw new Error('Selected serial number is not available');
+      }
+    } else {
+      const autoFilter = {
+        status: 'AVAILABLE',
+        name: requestedName,
+        author: requestedAuthor,
+        category: requestedCategory
+      };
+      book = await Book.findOne(autoFilter).sort({ serialNo: 1 });
+    }
+
+    if (!book && requestTxn.book) {
+      const fallbackBook = await Book.findById(requestTxn.book);
+      if (fallbackBook && fallbackBook.status === 'AVAILABLE') {
+        book = fallbackBook;
+      }
+    }
+
+    if (!book) {
+      throw new Error('No available serial number found for this requested book');
+    }
+
+    const today = new Date();
+    const activeTransactions = await Transaction.find({
+      membership: membership._id,
+      status: 'ACTIVE'
+    });
+
+    for (const trans of activeTransactions) {
+      const dueDate = new Date(trans.returnDate);
+      if (today > dueDate) {
+        throw new Error('Member has overdue books. Please return them first.');
+      }
+    }
+
+    requestTxn.issueDate = today;
+    requestTxn.returnDate = new Date(today.getTime() + (15 * 24 * 60 * 60 * 1000));
+    requestTxn.book = book._id;
+    requestTxn.user = membership.user;
+    requestTxn.status = 'ACTIVE';
+    requestTxn.remarks = requestTxn.remarks
+      ? `${requestTxn.remarks} | Approved by admin`
+      : 'Approved by admin';
+
+    await requestTxn.save();
+
+    book.status = 'ISSUED';
+    await book.save();
+
+    const populatedTransaction = await Transaction.findById(requestTxn._id)
+      .populate('membership')
+      .populate('book')
+      .populate('requestedBy', 'username name');
+
+    res.json({
+      success: true,
+      message: 'Issue request approved and book issued successfully',
+      transaction: populatedTransaction
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 // @desc    Return a book
 // @route   POST /api/transactions/return
 exports.returnBook = async (req, res) => {
@@ -121,6 +350,12 @@ exports.returnBook = async (req, res) => {
     const membership = await Membership.findOne({ membershipId }).session(session);
     if (!membership) {
       throw new Error('Membership not found');
+    }
+
+    if (!req.user.isAdmin) {
+      if (!membership.user || String(membership.user) !== String(req.user.userId)) {
+        throw new Error('Not authorized to return books for this membership');
+      }
     }
 
     const book = await Book.findOne({ serialNo: bookSerialNo }).session(session);
@@ -205,6 +440,13 @@ exports.payFine = async (req, res) => {
       throw new Error('Transaction not found');
     }
 
+    if (!req.user.isAdmin) {
+      const membership = await Membership.findById(transaction.membership).session(session);
+      if (!membership || !membership.user || String(membership.user) !== String(req.user.userId)) {
+        throw new Error('Not authorized to pay fine for this transaction');
+      }
+    }
+
     if (transaction.fineCalculated > 0 && !transaction.finePaid) {
       transaction.finePaid = finePaid;
       transaction.remarks = remarks || transaction.remarks;
@@ -274,6 +516,15 @@ exports.getMemberTransactions = async (req, res) => {
       });
     }
 
+    if (!req.user.isAdmin) {
+      if (!membership.user || String(membership.user) !== String(req.user.userId)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Not authorized to view this membership transactions'
+        });
+      }
+    }
+
     const transactions = await Transaction.find({ membership: membership._id })
       .populate('book')
       .sort('-createdAt');
@@ -312,18 +563,53 @@ exports.checkAvailability = async (req, res) => {
 // @route   GET /api/transactions/my-history
 exports.getMyTransactions = async (req, res) => {
   try {
-    // Find membership linked to the logged-in user
-    // Note: req.user.userId must be populated by auth middleware
-    const membership = await Membership.findOne({ user: req.user.userId });
-    
-    if (!membership) {
-      return res.status(404).json({
-        success: false,
-        message: 'No membership linked to this account'
-      });
+    // Prefer explicit membership mapping first.
+    let membership = await Membership.findOne({ user: req.user.userId });
+    let transactionFilter;
+
+    if (membership) {
+      transactionFilter = { membership: membership._id };
+    } else {
+      // Fallback for legacy data: identify user's records by ownership fields.
+      const ownedRows = await Transaction.find({
+        $or: [
+          { user: req.user.userId },
+          { requestedBy: req.user.userId }
+        ]
+      }).select('membership');
+
+      const membershipIds = [
+        ...new Set(
+          ownedRows
+            .map((row) => row.membership?.toString())
+            .filter(Boolean)
+        )
+      ];
+
+      if (membershipIds.length === 1) {
+        const inferredMembership = await Membership.findById(membershipIds[0]);
+        if (inferredMembership) {
+          // Auto-link only if membership is currently unassigned.
+          if (!inferredMembership.user) {
+            inferredMembership.user = req.user.userId;
+            await inferredMembership.save();
+          }
+          membership = inferredMembership;
+          transactionFilter = { membership: inferredMembership._id };
+        }
+      }
+
+      if (!transactionFilter) {
+        transactionFilter = {
+          $or: [
+            { user: req.user.userId },
+            { requestedBy: req.user.userId }
+          ]
+        };
+      }
     }
 
-    const transactions = await Transaction.find({ membership: membership._id })
+    const transactions = await Transaction.find(transactionFilter)
       .populate('book', 'name serialNo author')
       .sort('-createdAt');
 
@@ -341,9 +627,9 @@ exports.getMyTransactions = async (req, res) => {
 
       return {
         _id: t._id,
-        bookName: t.book.name,
-        bookSerial: t.book.serialNo,
-        bookAuthor: t.book.author,
+        bookName: t.book?.name || '-',
+        bookSerial: t.book?.serialNo || '-',
+        bookAuthor: t.book?.author || '-',
         issueDate: t.issueDate,
         returnDate: t.returnDate,
         actualReturnDate: t.actualReturnDate,
@@ -355,7 +641,7 @@ exports.getMyTransactions = async (req, res) => {
     res.json({
       success: true,
       transactions: data,
-      membershipInfo: membership
+      membershipInfo: membership || null
     });
   } catch (error) {
     res.status(500).json({

@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 import './Form.css';
 
 function AddMembership() {
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -13,7 +15,8 @@ function AddMembership() {
     contactAddress: '',
     aadharCardNo: '',
     contactNumber: '',
-    membershipType: 'SIX_MONTHS' // Default to 6 months
+    membershipType: 'SIX_MONTHS', // Default to 6 months
+    linkedUsername: ''
   });
   const [loading, setLoading] = useState(false);
 
@@ -67,7 +70,7 @@ function AddMembership() {
         <div className="nav-links">
           <button className="nav-link" onClick={() => navigate('/chart')}>Chart</button>
           <span>|</span>
-          <button className="nav-link" onClick={() => navigate('/admin-home')}>Home</button>
+          <button className="nav-link" onClick={() => navigate(isAdmin ? '/admin-home' : '/user-home')}>Home</button>
           <span>|</span>
           <button className="nav-link" onClick={() => navigate(-1)}>Back</button>
         </div>
@@ -86,6 +89,8 @@ function AddMembership() {
                   className="form-control"
                   value={formData.firstName}
                   onChange={handleChange}
+                  pattern="[A-Za-z ]+"
+                  title="Only letters and spaces are allowed"
                   required
                 />
               </div>
@@ -99,6 +104,8 @@ function AddMembership() {
                   className="form-control"
                   value={formData.lastName}
                   onChange={handleChange}
+                  pattern="[A-Za-z ]+"
+                  title="Only letters and spaces are allowed"
                   required
                 />
               </div>
@@ -113,7 +120,24 @@ function AddMembership() {
               className="form-control"
               value={formData.contactName}
               onChange={handleChange}
+              pattern="[A-Za-z ]*"
+              title="Only letters and spaces are allowed"
             />
+          </div>
+
+          <div className="form-group">
+            <label>Link To Existing Username (Optional)</label>
+            <input
+              type="text"
+              name="linkedUsername"
+              className="form-control"
+              value={formData.linkedUsername}
+              onChange={handleChange}
+              placeholder="Enter username to link this membership"
+            />
+            <small className="text-muted">
+              If provided, this membership will be linked to that user account.
+            </small>
           </div>
 
           <div className="form-group">

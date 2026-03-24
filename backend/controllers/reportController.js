@@ -86,9 +86,20 @@ exports.getMasterListMemberships = async (req, res) => {
 // @route   GET /api/reports/active-issues
 exports.getActiveIssues = async (req, res) => {
   try {
-    const activeIssues = await Transaction.find({ 
-      status: 'ACTIVE' 
-    })
+    let filter = { status: 'ACTIVE' };
+
+    if (!req.user.isAdmin) {
+      const membership = await Membership.findOne({ user: req.user.userId });
+      if (!membership) {
+        return res.json({
+          success: true,
+          activeIssues: []
+        });
+      }
+      filter.membership = membership._id;
+    }
+
+    const activeIssues = await Transaction.find(filter)
     .populate({
       path: 'membership',
       select: 'membershipId firstName lastName contactNumber'
@@ -125,10 +136,25 @@ exports.getActiveIssues = async (req, res) => {
 exports.getOverdueReturns = async (req, res) => {
   try {
     const today = new Date();
-    const overdueIssues = await Transaction.find({ 
+    
+    let filter = {
       status: 'ACTIVE',
       returnDate: { $lt: today }
-    })
+    };
+
+    // If non-admin, filter to user's membership only
+    if (!req.user.isAdmin) {
+      const membership = await Membership.findOne({ user: req.user.userId });
+      if (!membership) {
+        return res.json({
+          success: true,
+          overdueReturns: []
+        });
+      }
+      filter.membership = membership._id;
+    }
+
+    const overdueIssues = await Transaction.find(filter)
     .populate({
       path: 'membership',
       select: 'membershipId firstName lastName contactNumber fineAmount'
@@ -169,39 +195,74 @@ exports.getOverdueReturns = async (req, res) => {
   }
 };
 
-// @desc    Get issue requests (transactions in last 30 days)
+// @desc    Get pending issue requests created by users
 // @route   GET /api/reports/issue-requests
 exports.getIssueRequests = async (req, res) => {
   try {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    let filter = {
+      status: 'PENDING',
+      transactionType: 'ISSUE'
+    };
 
-    const recentTransactions = await Transaction.find({
-      createdAt: { $gte: thirtyDaysAgo }
-    })
+    // If non-admin, filter to user's pending requests only
+    if (!req.user.isAdmin) {
+      filter.requestedBy = req.user.userId;
+    }
+
+    const pendingRequests = await Transaction.find(filter)
     .populate({
       path: 'membership',
       select: 'membershipId firstName lastName'
     })
     .populate({
       path: 'book',
-      select: 'serialNo name type'
+      select: 'serialNo name author category type'
+    })
+    .populate({
+      path: 'requestedBy',
+      select: 'username name'
     })
     .sort('-createdAt');
 
+    const mappedRequests = await Promise.all(
+      pendingRequests.map(async (t) => {
+        const requestedBookName = t.requestedBookName || t.book?.name;
+        const requestedBookAuthor = t.requestedBookAuthor || t.book?.author;
+        const requestedBookCategory = t.requestedBookCategory || t.book?.category;
+
+        const availableFilter = {
+          status: 'AVAILABLE',
+          name: requestedBookName,
+          author: requestedBookAuthor,
+          category: requestedBookCategory
+        };
+
+        const availableBooks = await Book.find(availableFilter)
+          .select('serialNo')
+          .sort({ serialNo: 1 });
+
+        const availableSerialNos = availableBooks.map((b) => b.serialNo);
+
+        return {
+          transactionId: t.transactionId,
+          membershipId: t.membership?.membershipId,
+          memberName: t.membership ? `${t.membership.firstName} ${t.membership.lastName}` : 'N/A',
+          requestedBy: t.requestedBy?.name || t.requestedBy?.username || 'N/A',
+          requestedBookName,
+          requestedBookAuthor,
+          requestedBookCategory,
+          requestedDate: t.createdAt,
+          remarks: t.remarks,
+          status: t.status,
+          availableSerialNos,
+          autoSelectedSerialNo: availableSerialNos[0] || null
+        };
+      })
+    );
+
     res.json({
       success: true,
-      issueRequests: recentTransactions.map(t => ({
-        membershipId: t.membership?.membershipId,
-        memberName: t.membership ? `${t.membership.firstName} ${t.membership.lastName}` : 'N/A',
-        bookName: t.book?.name,
-        bookSerialNo: t.book?.serialNo,
-        type: t.book?.type,
-        requestedDate: t.createdAt,
-        fulfilledDate: t.actualReturnDate,
-        status: t.status,
-        transactionType: t.transactionType
-      }))
+      issueRequests: mappedRequests
     });
   } catch (error) {
     res.status(500).json({

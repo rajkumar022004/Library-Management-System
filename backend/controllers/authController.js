@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 
 
 const generateToken = (userId, isAdmin) => {
@@ -10,13 +11,17 @@ const generateToken = (userId, isAdmin) => {
   );
 };
 
+const normalizeUsername = (value = '') => String(value).trim();
+const NAME_PATTERN = /^[A-Za-z ]+$/;
+
 
 exports.login = async (req, res) => {
   try {
     const { username, password } = req.body;
+    const normalizedUsername = normalizeUsername(username);
 
     
-    if (!username || !password) {
+    if (!normalizedUsername || !password) {
       return res.status(400).json({
         success: false,
         message: 'Please provide username and password'
@@ -24,7 +29,7 @@ exports.login = async (req, res) => {
     }
 
    
-    const user = await User.findOne({ username });
+    const user = await User.findOne({ username: normalizedUsername });
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -33,7 +38,16 @@ exports.login = async (req, res) => {
     }
 
   
-    const isMatch = await user.comparePassword(password);
+    let isMatch = await user.comparePassword(password);
+
+    // Backward compatibility: support old plain-text passwords and migrate to hash.
+    if (!isMatch && user.password === password) {
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(password, salt);
+      await user.save();
+      isMatch = true;
+    }
+
     if (!isMatch) {
       return res.status(401).json({
         success: false,
@@ -47,6 +61,12 @@ exports.login = async (req, res) => {
         success: false,
         message: 'Account is deactivated'
       });
+    }
+
+    // Self-heal legacy setup where default admin account was created without admin role.
+    if (String(user.username).toLowerCase() === 'admin' && !user.isAdmin) {
+      user.isAdmin = true;
+      await user.save();
     }
 
 
@@ -75,9 +95,26 @@ exports.login = async (req, res) => {
 exports.register = async (req, res) => {
   try {
     const { username, password, name, email, isAdmin } = req.body;
+    const normalizedUsername = normalizeUsername(username);
+    const normalizedName = String(name || '').trim();
+    const normalizedEmail = email ? String(email).trim().toLowerCase() : undefined;
+
+    if (!normalizedUsername || !password || !normalizedName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username, password and name are required'
+      });
+    }
+
+    if (!NAME_PATTERN.test(normalizedName)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name can contain only letters and spaces'
+      });
+    }
 
     // Check if user exists
-    const existingUser = await User.findOne({ username });
+    const existingUser = await User.findOne({ username: normalizedUsername });
     if (existingUser) {
       return res.status(400).json({
         success: false,
@@ -87,11 +124,11 @@ exports.register = async (req, res) => {
 
     // Create user
     const user = new User({
-      username,
+      username: normalizedUsername,
       password,
-      name,
-      email,
-      isAdmin: isAdmin || false
+      name: normalizedName,
+      email: normalizedEmail,
+      isAdmin: String(normalizedUsername).toLowerCase() === 'admin' ? true : (isAdmin || false)
     });
 
     await user.save();

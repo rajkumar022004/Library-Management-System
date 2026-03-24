@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import api from '../services/api';
@@ -10,12 +10,13 @@ import './Transaction.css';
 
 function BookIssue() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { isAuthenticated, isAdmin } = useAuth();
   
   const [step, setStep] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
-  const [selectedBook, setSelectedBook] = useState(null);
+  const [selectedBook, setSelectedBook] = useState(location.state?.selectedBook || null);
   const [membershipId, setMembershipId] = useState('');
   const [membership, setMembership] = useState(null);
   const [issueDate, setIssueDate] = useState(new Date());
@@ -27,12 +28,42 @@ function BookIssue() {
   const [remarks, setRemarks] = useState('');
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [membershipLoading, setMembershipLoading] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
       navigate('/login');
     }
   }, [isAuthenticated, navigate]);
+
+  useEffect(() => {
+    if (location.state?.selectedBook) {
+      setSelectedBook(location.state.selectedBook);
+      setStep(isAdmin ? 2 : (membership ? 3 : 2));
+    }
+  }, [location.state, isAdmin, membership]);
+
+  useEffect(() => {
+    const loadMyMembership = async () => {
+      if (!isAuthenticated || isAdmin) {
+        return;
+      }
+
+      setMembershipLoading(true);
+      try {
+        const response = await api.get('/memberships/my');
+        const member = response.data.membership || response.data;
+        setMembership(member);
+        setMembershipId(member.membershipId || '');
+      } catch (error) {
+        setMembership(null);
+      } finally {
+        setMembershipLoading(false);
+      }
+    };
+
+    loadMyMembership();
+  }, [isAuthenticated, isAdmin]);
 
   // Search books with debounce
   useEffect(() => {
@@ -47,8 +78,10 @@ function BookIssue() {
         const response = await api.get('/books/search', {
           params: { keyword: searchTerm }
         });
-        const availableBooks = response.data.books.filter(book => book.status === 'AVAILABLE');
-        setSearchResults(availableBooks);
+        const books = response.data.books || [];
+        // Admin can issue only from available books; users can view/request by category even if currently issued.
+        const visibleBooks = isAdmin ? books.filter((book) => book.status === 'AVAILABLE') : books;
+        setSearchResults(visibleBooks);
       } catch (error) {
         toast.error('Error searching books');
       } finally {
@@ -58,9 +91,43 @@ function BookIssue() {
 
     const debounceTimer = setTimeout(searchBooks, 500);
     return () => clearTimeout(debounceTimer);
-  }, [searchTerm]);
+  }, [searchTerm, isAdmin]);
 
   const validateMembership = async () => {
+    if (!isAdmin) {
+      setLoading(true);
+      try {
+        const response = await api.get('/memberships/my');
+        const member = response.data.membership || response.data;
+
+        if (!member) {
+          toast.error('No membership linked to this account');
+          return false;
+        }
+
+        if (member.status !== 'ACTIVE') {
+          toast.error('Membership is not active');
+          return false;
+        }
+
+        if (member.endDate && new Date(member.endDate) < new Date()) {
+          toast.error('Membership has expired');
+          return false;
+        }
+
+        setMembership(member);
+        setMembershipId(member.membershipId || '');
+        setStep(3);
+        return true;
+      } catch (error) {
+        const errorMsg = error.response?.data?.message || 'No membership linked to this account';
+        toast.error(errorMsg);
+        return false;
+      } finally {
+        setLoading(false);
+      }
+    }
+
     if (!membershipId.trim()) {
       toast.error('Please enter membership ID');
       return false;
@@ -168,9 +235,45 @@ function BookIssue() {
     }
   };
 
+  const handleRequestBook = async () => {
+    if (!membership) {
+      toast.error('Please validate your membership first');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await api.post('/transactions/issue-request', {
+        membershipId: membership.membershipId,
+        requestedBookName: selectedBook.name,
+        requestedBookAuthor: selectedBook.author,
+        requestedBookCategory: selectedBook.category,
+        remarks
+      });
+
+      toast.success('Issue request submitted successfully!');
+      navigate('/confirmation', {
+        state: {
+          message: 'Issue request submitted successfully! Admin will review your request.',
+          transaction: response.data.transaction,
+          book: selectedBook,
+          member: membership
+        }
+      });
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to submit issue request');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSelectBook = (book) => {
+    if (isAdmin && book.status !== 'AVAILABLE') {
+      toast.error('Admin can issue only available books');
+      return;
+    }
     setSelectedBook(book);
-    setStep(2);
+    setStep(isAdmin ? 2 : (membership ? 3 : 2));
   };
 
   if (!isAuthenticated) {
@@ -193,7 +296,7 @@ function BookIssue() {
             Back
           </button>
         </div>
-        <h2>Issue Book</h2>
+        <h2>{isAdmin ? 'Issue Book' : 'Request Book Issue'}</h2>
       </div>
 
       <div className="transaction-content">
@@ -218,7 +321,7 @@ function BookIssue() {
               
               {searchResults.length > 0 && (
                 <div className="search-results mt-4">
-                  <h4>Available Books</h4>
+                  <h4>{isAdmin ? 'Available Books' : 'Matching Books'}</h4>
                   <div className="table-responsive">
                     <table className="table table-hover">
                       <thead>
@@ -227,6 +330,7 @@ function BookIssue() {
                           <th>Author</th>
                           <th>Serial No</th>
                           <th>Category</th>
+                          <th>Status</th>
                           <th>Action</th>
                         </tr>
                       </thead>
@@ -237,12 +341,14 @@ function BookIssue() {
                             <td>{book.author}</td>
                             <td>{book.serialNo}</td>
                             <td>{book.category}</td>
+                            <td>{book.status}</td>
                             <td>
                               <button
                                 className="btn btn-sm btn-primary"
                                 onClick={() => handleSelectBook(book)}
+                                disabled={isAdmin && book.status !== 'AVAILABLE'}
                               >
-                                Select
+                                {isAdmin ? 'Select' : 'Request'}
                               </button>
                             </td>
                           </tr>
@@ -255,7 +361,9 @@ function BookIssue() {
               
               {searchTerm && !searching && searchResults.length === 0 && (
                 <div className="alert alert-info mt-3">
-                  No available books found matching "{searchTerm}"
+                  {isAdmin
+                    ? `No available books found matching "${searchTerm}"`
+                    : `No books found matching "${searchTerm}"`}
                 </div>
               )}
             </div>
@@ -274,28 +382,53 @@ function BookIssue() {
                 <h5>Selected Book:</h5>
                 <p><strong>Name:</strong> {selectedBook.name}</p>
                 <p><strong>Author:</strong> {selectedBook.author}</p>
-                <p><strong>Serial No:</strong> {selectedBook.serialNo}</p>
+                {isAdmin && <p><strong>Serial No:</strong> {selectedBook.serialNo}</p>}
               </div>
             </div>
 
             <div className="member-validation">
-              <label>Enter Membership ID:</label>
-              <div className="input-group mb-3">
-                <input
-                  type="text"
-                  className="form-control"
-                  value={membershipId}
-                  onChange={(e) => setMembershipId(e.target.value)}
-                  placeholder="e.g., MEM000001"
-                />
-                <button
-                  className="btn btn-primary"
-                  onClick={validateMembership}
-                  disabled={loading}
-                >
-                  {loading ? 'Validating...' : 'Validate'}
-                </button>
-              </div>
+              {isAdmin ? (
+                <>
+                  <label>Enter Membership ID:</label>
+                  <div className="input-group mb-3">
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={membershipId}
+                      onChange={(e) => setMembershipId(e.target.value)}
+                      placeholder="e.g., MEM000001"
+                    />
+                    <button
+                      className="btn btn-primary"
+                      onClick={validateMembership}
+                      disabled={loading}
+                    >
+                      {loading ? 'Validating...' : 'Validate'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {membershipLoading ? (
+                    <div className="alert alert-info">Loading your membership...</div>
+                  ) : membership ? (
+                    <div className="alert alert-success">
+                      Linked Membership: <strong>{membership.membershipId}</strong>
+                    </div>
+                  ) : (
+                    <div className="alert alert-warning">
+                      No membership linked to your account. Please contact admin to link your membership.
+                    </div>
+                  )}
+                  <button
+                    className="btn btn-primary mb-3"
+                    onClick={validateMembership}
+                    disabled={loading || membershipLoading}
+                  >
+                    {loading ? 'Validating...' : 'Continue'}
+                  </button>
+                </>
+              )}
               <button
                 className="btn btn-secondary"
                 onClick={() => setStep(1)}
@@ -310,7 +443,7 @@ function BookIssue() {
         {step === 3 && membership && selectedBook && (
           <div className="step-container">
             <h3>
-              <FaCheck /> Step 3: Confirm Book Issue
+              <FaCheck /> Step 3: {isAdmin ? 'Confirm Book Issue' : 'Confirm Issue Request'}
             </h3>
 
             <div className="row">
@@ -336,7 +469,8 @@ function BookIssue() {
                   <div className="card-body">
                     <p><strong>Name:</strong> {selectedBook.name}</p>
                     <p><strong>Author:</strong> {selectedBook.author}</p>
-                    <p><strong>Serial No:</strong> {selectedBook.serialNo}</p>
+                    {isAdmin && <p><strong>Serial No:</strong> {selectedBook.serialNo}</p>}
+                    {!isAdmin && <p><strong>Category:</strong> {selectedBook.category}</p>}
                   </div>
                 </div>
               </div>
@@ -396,10 +530,10 @@ function BookIssue() {
               </button>
               <button
                 className="btn btn-success"
-                onClick={handleIssueBook}
+                onClick={isAdmin ? handleIssueBook : handleRequestBook}
                 disabled={loading}
               >
-                {loading ? 'Processing...' : 'Confirm Issue'}
+                {loading ? 'Processing...' : isAdmin ? 'Confirm Issue' : 'Submit Request'}
               </button>
             </div>
           </div>

@@ -10,10 +10,33 @@ const transactionSchema = new mongoose.Schema({
     ref: 'Membership',
     required: true
   },
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    index: true
+  },
+  requestedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  requestedBookName: {
+    type: String,
+    trim: true
+  },
+  requestedBookAuthor: {
+    type: String,
+    trim: true
+  },
+  requestedBookCategory: {
+    type: String,
+    trim: true
+  },
   book: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Book',
-    required: true
+    required: function() {
+      return this.status !== 'PENDING';
+    }
   },
   transactionType: {
     type: String,
@@ -40,11 +63,41 @@ const transactionSchema = new mongoose.Schema({
   remarks: String,
   status: {
     type: String,
-    enum: ['ACTIVE', 'COMPLETED', 'OVERDUE'],
+    enum: ['PENDING', 'ACTIVE', 'COMPLETED', 'OVERDUE'],
     default: 'ACTIVE'
   }
 }, {
   timestamps: true
+});
+
+transactionSchema.index({ membership: 1, status: 1 });
+transactionSchema.index({ user: 1, status: 1 });
+transactionSchema.index({ membership: 1, book: 1, status: 1 });
+
+transactionSchema.pre('validate', async function(next) {
+  if (!this.membership) {
+    return next();
+  }
+
+  try {
+    const MembershipModel = mongoose.model('Membership');
+    const membership = await MembershipModel.findById(this.membership).select('user');
+
+    if (!membership) {
+      return next(new Error('Membership reference is invalid'));
+    }
+
+    if (membership.user) {
+      if (this.user && String(this.user) !== String(membership.user)) {
+        return next(new Error('Transaction user must match membership user'));
+      }
+      this.user = membership.user;
+    }
+
+    return next();
+  } catch (error) {
+    return next(error);
+  }
 });
 
 

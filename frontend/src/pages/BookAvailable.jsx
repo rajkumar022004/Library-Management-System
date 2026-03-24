@@ -11,6 +11,7 @@ function BookAvailable() {
   const [filteredBooks, setFilteredBooks] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [categories, setCategories] = useState([]);
 
@@ -19,44 +20,79 @@ function BookAvailable() {
   }, []);
 
   useEffect(() => {
-    filterBooks();
+    const timer = setTimeout(() => {
+      searchAvailableBooks();
+    }, 300);
+
+    return () => clearTimeout(timer);
   }, [searchTerm, selectedCategory, books]);
+
+  const normalizeBooks = (payload) => {
+    if (Array.isArray(payload?.books)) {
+      return payload.books;
+    }
+    if (Array.isArray(payload)) {
+      return payload;
+    }
+    return [];
+  };
 
   const fetchBooks = async () => {
     try {
       const response = await api.get('/books/available');
-      const availableBooks = response.data.books || response.data;
+      const availableBooks = normalizeBooks(response.data);
       setBooks(availableBooks);
-      setFilteredBooks(availableBooks);
+      setFilteredBooks([]);
       
       // Extract unique categories
       const uniqueCategories = ['All', ...new Set(availableBooks.map(book => book.category).filter(Boolean))];
       setCategories(uniqueCategories);
     } catch (error) {
-      toast.error('Error fetching books');
+      setBooks([]);
+      setFilteredBooks([]);
+      setCategories(['All']);
+      toast.error(error.response?.data?.message || 'Error fetching books');
     } finally {
       setLoading(false);
     }
   };
 
-  const filterBooks = () => {
-    let filtered = books;
+  const applyCategoryFilter = (bookList) => {
+    if (selectedCategory === 'All') {
+      return bookList;
+    }
+    return bookList.filter((book) => book.category === selectedCategory);
+  };
 
-    // Filter by search term
-    if (searchTerm.trim()) {
-      filtered = filtered.filter(book => 
-        book.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        book.author?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        book.serialNo?.toLowerCase().includes(searchTerm.toLowerCase())
+  const searchAvailableBooks = async () => {
+    const keyword = searchTerm.trim();
+
+    if (!keyword) {
+      setFilteredBooks([]);
+      return;
+    }
+
+    setSearching(true);
+    try {
+      const response = await api.get('/books/search', {
+        params: { keyword }
+      });
+
+      const searchedBooks = normalizeBooks(response.data);
+      const onlyAvailable = searchedBooks.filter((book) => book.status === 'AVAILABLE');
+      setFilteredBooks(applyCategoryFilter(onlyAvailable));
+    } catch (error) {
+      // Fallback to local filtering if API search fails.
+      const localResults = (Array.isArray(books) ? books : []).filter((book) =>
+        book.name?.toLowerCase().includes(keyword.toLowerCase()) ||
+        book.author?.toLowerCase().includes(keyword.toLowerCase()) ||
+        book.serialNo?.toLowerCase().includes(keyword.toLowerCase())
       );
+      setFilteredBooks(applyCategoryFilter(localResults));
+      toast.error(error.response?.data?.message || 'Error searching books');
+    } finally {
+      setSearching(false);
     }
-
-    // Filter by category
-    if (selectedCategory !== 'All') {
-      filtered = filtered.filter(book => book.category === selectedCategory);
-    }
-
-    setFilteredBooks(filtered);
   };
 
   const handleIssueBook = (book) => {
@@ -110,9 +146,19 @@ function BookAvailable() {
           </div>
         </div>
 
-        {filteredBooks.length === 0 ? (
+        {searching && (
+          <div className="text-center mb-3">Searching books...</div>
+        )}
+
+        {!searchTerm.trim() ? (
           <div className="alert alert-info">
-            No books available at the moment.
+            Search for a book by name, author, or serial number.
+          </div>
+        ) : filteredBooks.length === 0 ? (
+          <div className="alert alert-info">
+            {searchTerm.trim()
+              ? `No available books found for "${searchTerm}".`
+              : 'No books available at the moment.'}
           </div>
         ) : (
           <div className="table-responsive">
@@ -129,7 +175,7 @@ function BookAvailable() {
               </thead>
               <tbody>
                 {filteredBooks.map(book => (
-                  <tr key={book._id}>
+                  <tr key={book._id || book.serialNo}>
                     <td>{book.name}</td>
                     <td>{book.author}</td>
                     <td>{book.serialNo}</td>

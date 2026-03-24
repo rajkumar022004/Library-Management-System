@@ -4,8 +4,10 @@ const {
   getAllMemberships,
   getMembershipById,
   getMembershipByMembershipId,
+  getMyMembership,
   addMembership,
   updateMembership,
+  linkMembershipToUser,
   extendMembership,
   deleteMembership,
   searchMemberships
@@ -15,11 +17,13 @@ const { protect, adminOnly } = require('../middleware/authMiddleware');
 router.use(protect);
 
 router.get('/', adminOnly, getAllMemberships);
+router.get('/my', getMyMembership);
 router.get('/search', searchMemberships);
-router.get('/:id', getMembershipById);
 router.get('/membership/:membershipId', getMembershipByMembershipId);
+router.get('/:id', getMembershipById);
 router.post('/', adminOnly, addMembership);
 router.put('/:id', adminOnly, updateMembership);
+router.put('/:id/link-user', adminOnly, linkMembershipToUser);
 router.put('/:id/extend', protect, extendMembership);
 router.delete('/:id', adminOnly, deleteMembership);
 

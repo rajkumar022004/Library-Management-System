@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 import './Form.css';
 
 function AddBook() {
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
   const [formData, setFormData] = useState({
     name: '',
     author: '',
@@ -69,7 +71,7 @@ function AddBook() {
         <div className="nav-links">
           <button className="nav-link" onClick={() => navigate('/chart')}>Chart</button>
           <span>|</span>
-          <button className="nav-link" onClick={() => navigate('/admin-home')}>Home</button>
+          <button className="nav-link" onClick={() => navigate(isAdmin ? '/admin-home' : '/user-home')}>Home</button>
           <span>|</span>
           <button className="nav-link" onClick={() => navigate(-1)}>Back</button>
         </div>

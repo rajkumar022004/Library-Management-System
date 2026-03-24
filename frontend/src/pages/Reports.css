@@ -70,6 +70,17 @@
   border-top: 1px solid #dee2e6;
 }
 
+.report-panel {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.lookup-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
 @media (max-width: 768px) {
   .reports-grid {
     grid-template-columns: 1fr;
@@ -82,5 +93,9 @@
   .report-icon {
     font-size: 30px;
     min-width: 50px;
+  }
+
+  .lookup-row {
+    grid-template-columns: 1fr;
   }
 }

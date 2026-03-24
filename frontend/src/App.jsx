@@ -8,6 +8,7 @@ import { AuthProvider } from './context/AuthContext';
 
 import PrivateRoute from './components/PrivateRoute';
 import Navbar from './components/Navbar';
+import Footer from './components/Footer';
 
 
 import Login from './pages/Login';
@@ -32,10 +33,11 @@ function AppLayout() {
   const hideNavbar = location.pathname === '/login' || location.pathname === '/';
 
   return (
-    <>
+    <div className="d-flex flex-column min-vh-100">
       {!hideNavbar && <Navbar />}
       <ToastContainer position="top-right" autoClose={3000} />
-        
+      
+      <div className="flex-grow-1">
         <Routes>
           {/* Public Routes */}
           <Route path="/login" element={<Login />} />
@@ -43,7 +45,7 @@ function AppLayout() {
           
           {/* Protected Routes */}
           <Route path="/admin-home" element={
-            <PrivateRoute>
+            <PrivateRoute adminOnly>
               <AdminHome />
             </PrivateRoute>
           } />
@@ -120,7 +122,9 @@ function AppLayout() {
           {/* Default Route */}
           <Route path="/" element={<Navigate to="/login" />} />
         </Routes>
-    </>
+      </div>
+      <Footer />
+    </div>
   );
 }
 

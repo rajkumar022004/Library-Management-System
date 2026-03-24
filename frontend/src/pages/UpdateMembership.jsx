@@ -1,47 +1,76 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 import './Form.css';
 
 function UpdateMembership() {
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
   const [step, setStep] = useState(1);
   const [membershipId, setMembershipId] = useState('');
   const [formData, setFormData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [extensionType, setExtensionType] = useState('SIX_MONTHS');
   const [removeMembership, setRemoveMembership] = useState(false);
+  const [linkUsername, setLinkUsername] = useState('');
+  const [linking, setLinking] = useState(false);
 
   const searchMembership = async () => {
-    if (!membershipId) {
+    const normalizedMembershipId = membershipId.trim();
+
+    if (!normalizedMembershipId) {
       toast.error('Please enter membership ID');
       return;
     }
 
     setLoading(true);
     try {
-      const response = await api.get(`/memberships/${membershipId}`);
+      const response = await api.get(`/memberships/${normalizedMembershipId}`);
       const memberData = response.data.membership || response.data;
+
+      if (!memberData || !memberData.membershipId) {
+        toast.error('Membership details not found');
+        setFormData(null);
+        setStep(1);
+        return;
+      }
+
       setFormData(memberData);
+      setLinkUsername(memberData?.user?.username || '');
       setStep(2);
     } catch (error) {
-      // Mock data for demo
-      const mockMember = {
-        _id: '123',
-        membershipId: membershipId,
-        firstName: 'John',
-        lastName: 'Doe',
-        membershipType: 'ONE_YEAR',
-        startDate: new Date(2024, 0, 1),
-        endDate: new Date(2025, 0, 1),
-        status: 'ACTIVE',
-        contactNumber: '9876543210'
-      };
-      setFormData(mockMember);
-      setStep(2);
+      toast.error(error.response?.data?.message || 'Membership not found');
+      setFormData(null);
+      setStep(1);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleLinkUser = async () => {
+    const username = linkUsername.trim();
+
+    if (!username) {
+      toast.error('Please enter username to link');
+      return;
+    }
+
+    setLinking(true);
+    try {
+      const response = await api.put(`/memberships/${formData._id}/link-user`, {
+        username
+      });
+
+      const updatedMembership = response.data.membership || formData;
+      setFormData(updatedMembership);
+      setLinkUsername(updatedMembership?.user?.username || username);
+      toast.success('Membership linked successfully');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to link membership');
+    } finally {
+      setLinking(false);
     }
   };
 
@@ -86,7 +115,7 @@ function UpdateMembership() {
         <div className="nav-links">
           <button className="nav-link" onClick={() => navigate('/chart')}>Chart</button>
           <span>|</span>
-          <button className="nav-link" onClick={() => navigate('/admin-home')}>Home</button>
+          <button className="nav-link" onClick={() => navigate(isAdmin ? '/admin-home' : '/user-home')}>Home</button>
           <span>|</span>
           <button className="nav-link" onClick={() => navigate(-1)}>Back</button>
         </div>
@@ -122,6 +151,7 @@ function UpdateMembership() {
               <div className="card-body">
                 <p><strong>Name:</strong> {formData.firstName} {formData.lastName}</p>
                 <p><strong>Membership ID:</strong> {formData.membershipId}</p>
+                <p><strong>Linked User:</strong> {formData.user?.username || 'Not linked'}</p>
                 <p><strong>Type:</strong> {formData.membershipType}</p>
                 <p><strong>Start Date:</strong> {new Date(formData.startDate).toLocaleDateString()}</p>
                 <p><strong>End Date:</strong> {new Date(formData.endDate).toLocaleDateString()}</p>
@@ -132,6 +162,32 @@ function UpdateMembership() {
                 </p>
               </div>
             </div>
+
+            {isAdmin && (
+              <div className="card mb-4">
+                <div className="card-body">
+                  <h5>Link Membership To User Account</h5>
+                  <div className="form-group">
+                    <label>Username</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={linkUsername}
+                      onChange={(e) => setLinkUsername(e.target.value)}
+                      placeholder="Enter username to link"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-outline-primary"
+                    onClick={handleLinkUser}
+                    disabled={linking}
+                  >
+                    {linking ? 'Linking...' : 'Link User'}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="form-group">
               <label>
